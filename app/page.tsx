@@ -11,22 +11,21 @@ interface NameData {
 }
 
 export default function BabyNameApp() {
-  // دابا عندنا غير 2 واجهات: الرئيسية (فيها الاقتراح والتصويت) والإدارة
   const [activeTab, setActiveTab] = useState<string>('home');
   const [names, setNames] = useState<NameData[]>([]);
   const [newName, setNewName] = useState<string>('');
   
-  // حماية الإدارة
   const [isAdminAuth, setIsAdminAuth] = useState<boolean>(false);
   const [passwordInput, setPasswordInput] = useState<string>('');
 
-  // منع التصويت المتكرر
-  const [votedNames, setVotedNames] = useState<string[]>([]);
+  // هنا كنسجلو غير ID ديال ديك السمية الوحيدة لي صوت عليها الشخص
+  const [votedNameId, setVotedNameId] = useState<string | null>(null);
 
   useEffect(() => {
-    const savedVotes = localStorage.getItem('votedBabyNames');
-    if (savedVotes) {
-      setVotedNames(JSON.parse(savedVotes));
+    // كنفحصو واش هاد الشخص ديجا ختار شي سمية
+    const savedVote = localStorage.getItem('votedBabyNameId');
+    if (savedVote) {
+      setVotedNameId(savedVote);
     }
   }, []);
 
@@ -46,7 +45,6 @@ export default function BabyNameApp() {
     const trimmedName = newName.trim();
     if (trimmedName === '') return;
 
-    // نقلبو واش السمية ديجا كاينة (سواء مقبولة ولا باقا فـ pending)
     const alreadyExists = names.find(n => n.text === trimmedName);
     if (alreadyExists) {
       alert('هاد السمية ديجا كاينة! قلب عليها لتحت وصوت عليها.');
@@ -68,18 +66,23 @@ export default function BabyNameApp() {
   };
 
   const handleVote = async (id: string) => {
-    if (votedNames.includes(id)) return;
+    // إلى ديجا مسجل عندو فالتليفون بلي صوت، كنحبسوه ما يدير والو
+    if (votedNameId !== null) return;
 
+    // كنسدّو البوطونات كاملين فالبلاصة قبل كاع ما يوصل للـ Database
+    setVotedNameId(id);
+    localStorage.setItem('votedBabyNameId', id);
+
+    // عاد كنزيدو الصوت فـ Firebase
     const nameRef = doc(db, 'names', id);
     await updateDoc(nameRef, { votes: increment(1) });
-
-    const updatedVotes = [...votedNames, id];
-    setVotedNames(updatedVotes);
-    localStorage.setItem('votedBabyNames', JSON.stringify(updatedVotes));
   };
 
   const approvedNames = names.filter(n => n.status === 'approved');
   const totalVotes = approvedNames.reduce((acc, curr) => acc + curr.votes, 0);
+  
+  // هاد المتغير كيعني: واش هاد السيد ديجا دار التصويت ديالو؟
+  const hasVoted = votedNameId !== null;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 font-sans" dir="rtl">
@@ -93,7 +96,6 @@ export default function BabyNameApp() {
 
         {activeTab === 'home' && (
           <div className="animate-fade-in">
-            {/* قسم الاقتراح */}
             <div className="mb-8 p-4 bg-blue-50 rounded-lg border border-blue-100">
               <h2 className="text-lg font-semibold text-blue-800 mb-3">اقترح سمية جديدة:</h2>
               <form onSubmit={handleSuggest} className="flex gap-2">
@@ -108,35 +110,47 @@ export default function BabyNameApp() {
               </form>
             </div>
 
-            {/* قسم التصويت */}
-            <h2 className="text-xl font-semibold mb-4 text-gray-800">صوت على أحسن سمية:</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">صوت على أحسن سمية:</h2>
+            </div>
+            
+            {hasVoted && (
+              <div className="bg-green-100 text-green-800 p-3 rounded-lg mb-4 text-sm font-medium text-center border border-green-200">
+                شكرا! ديجا استعملتي الصوت ديالك. دابا تقدر تشوف النتائج مباشرة.
+              </div>
+            )}
+
             {approvedNames.length === 0 ? (
               <p className="text-gray-500 text-center py-4">باقي ما كاين حتى سمية للتصويت، كون نتا الأول لي يقترح!</p>
             ) : (
               <div className="space-y-4">
                 {approvedNames.sort((a, b) => b.votes - a.votes).map(name => {
                   const percentage = totalVotes === 0 ? 0 : Math.round((name.votes / totalVotes) * 100);
-                  const hasVoted = votedNames.includes(name.id);
+                  const isThisMyVote = votedNameId === name.id;
                   
                   return (
-                    <div key={name.id} className="bg-gray-100 p-3 rounded-lg flex items-center justify-between text-black shadow-sm">
+                    <div key={name.id} className={`p-3 rounded-lg flex items-center justify-between text-black shadow-sm transition-all border-2 ${isThisMyVote ? 'bg-green-50 border-green-400' : 'bg-gray-100 border-transparent'}`}>
                       <div className="flex-1">
                         <div className="flex justify-between mb-1">
-                          <span className="font-bold text-lg">{name.text}</span>
+                          <span className={`font-bold text-lg ${isThisMyVote ? 'text-green-800' : ''}`}>{name.text}</span>
                           <span className="text-sm font-medium text-gray-600">{percentage}% ({name.votes} صوت)</span>
                         </div>
                         <div className="w-full bg-gray-300 rounded-full h-2.5">
-                          <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${percentage}%` }}></div>
+                          <div className={`h-2.5 rounded-full transition-all duration-500 ${isThisMyVote ? 'bg-green-500' : 'bg-blue-600'}`} style={{ width: `${percentage}%` }}></div>
                         </div>
                       </div>
                       <button 
                         onClick={() => handleVote(name.id)} 
                         disabled={hasVoted}
                         className={`ml-4 w-12 h-12 rounded-full font-bold mr-4 text-white flex items-center justify-center text-xl transition-colors shadow-sm ${
-                          hasVoted ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600 active:scale-95'
+                          isThisMyVote 
+                            ? 'bg-green-600 cursor-default' // لون خضر للسمية لي ختار
+                            : hasVoted 
+                              ? 'bg-gray-300 cursor-not-allowed text-gray-500' // لون رمادي وتسدان للسميات لخرين
+                              : 'bg-blue-500 hover:bg-blue-600 active:scale-95'
                         }`}
                       >
-                        {hasVoted ? '✓' : '+'}
+                        {isThisMyVote ? '✓' : hasVoted ? '🔒' : '+'}
                       </button>
                     </div>
                   )
